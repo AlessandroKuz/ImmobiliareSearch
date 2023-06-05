@@ -1,7 +1,8 @@
 from bs4 import BeautifulSoup
 import requests
-import re
+
 import timeit as t
+import re
 
 from house_scraper import RentingHouseParser
 
