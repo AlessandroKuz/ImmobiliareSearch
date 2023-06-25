@@ -6,6 +6,7 @@ cffi==1.15.1
 charset-normalizer==2.0.4
 cryptography==39.0.1
 idna==3.4
+lxml==4.9.2
 pycparser==2.21
 pyOpenSSL== 23.0.0
 PySocks==1.7.1

@@ -1,132 +1,97 @@
-from bs4 import BeautifulSoup
+import pandas as pd
 import requests
-import json
-
-# TODO: da aggiungere un parametro che si salva i metri quadri delle case
-
-class RentingHouseParser:
-    """Given a url of a specific rented house on Immobiliare.it,
-    parses the site to get the title, description and features;
-    also returns an optional .txt file for the description and
-    a .json file for the features"""
-    def __init__(self, url: str) -> None:
-        self.__url: str = url
-        self.__soup = None
-        self.__title: str = None
-        self.__soup_error: str = "You need to define the soup first!\n\
-        Please run the start_html first."
+import bs4
 
 
-    def start_html(self) -> None:
-        response: str = requests.get(self.__url).text
-        self.__soup = BeautifulSoup(response, "lxml")
+class HouseFeaturesScraper:
+    """Class that allow you to scrape the features of a given house
+    from the Immobiliare.it website - renting section;
+    gets title, price, square meters, rooms, bathrooms, energy class,
+    address and link to the house, and returns the data as a pandas.Series"""
+    def __init__(self, url) -> None:
+        self.url = url
+        self.soup = self.get_soup()
 
-
-    def get_title(self) -> str:
-        if self.__soup:
-            self.__title = self.__soup.find("h1",
-                                             class_='in-titleBlock__title'
-                                             ).text
-            return self.__title
-        else:
-            print(self.__soup_error)
-
-
-    def get_description(self, report_file: bool = False) -> str:
-        if self.__soup:
-            description = self.__soup.find("div", class_='in-readAll')
-            descrizione: str = str(description)
-            inizio: int = descrizione.find("<div>") + len("<div>")
-            fine: int = descrizione.find("</div>")
-            self.__description: str = descrizione[inizio:fine]
-            self.__description = self.__description.replace("<hr/>","")
-            self.__description = self.__description.replace("<hr>","")
-            self.__description = self.__description.replace("<br/>", "\n")
-            self.__description = self.__description.replace("<br>", "\n")
-
-            if report_file:
-                if not self.__title:
-                    self.get_title()
-                with open(f"{self.__title}.txt", "w") as f:
-                    f.write(self.__description)
-
-            return self.__description
-        else:
-            print(self.__soup_error)
-
-
-    def get_features(self, json_file: bool = False) -> dict:
-        if self.__soup:
-            features = self.__soup.find_all("dl", 
-                                        class_='in-realEstateFeatures__list')
-            self.__features_dict: dict[str] = {}
-
-            for index, elemento in enumerate(features):
-                lista_temp1: list = []
-                lista_temp2: list = []
-
-                for key in elemento.find_all("dt"):                
-                    lista_temp1.append(key.text)
-
-                if index == 0:  # if span allora fai così, non come ho fatto ora
-                    for value in elemento.find_all("dd")[:-1]:
-                        lista_temp2.append(value.text)
-                    x = elemento.find_all("dd")[-1]
-                    other_features_list: list = []
-                    for i in x.find_all("span"):
-                        other_features_list.append(i.text)
-                    lista_temp2.append((other_features_list))
-                else:
-                    for value in elemento.find_all("dd"):
-                        lista_temp2.append(value.text)
-
-                for key, value in zip(lista_temp1, lista_temp2):
-                    self.__features_dict[key] = value
-
-            if json_file:
-                if not self.__title:
-                    self.get_title()
-                with open(f"{self.__title}.json", "w") as f:
-                    json.dump(self.__features_dict, f, indent=2)
-
-            return self.__features_dict
-        else:
-            print(self.__soup_error)
-
-
-if __name__ == "__main__":
-    def print_details(aparment):
-        aparment.start_html()
-
-        title = aparment.get_title()
-        description = aparment.get_description()
-        features = aparment.get_features()
+        self.house_traits = {}
+        self.price = {}
         
-        divider = "-"*100
+    def get_soup(self) -> bs4.BeautifulSoup:
+        """Returns the soup of the given url"""
+        response = requests.get(self.url)
+        self.soup = bs4.BeautifulSoup(response.text, 'lxml')
 
-        print(divider)   
-        print(title)
-        print(divider)
-        print(description)
-        print(divider)
-        print(features)
+        return self.soup
     
+    def get_title(self) -> dict:
+        """Returns the title of the house"""
+        self.title = self.soup.find("h1", class_="in-titleBlock__title").text
 
-    def print_houses(houses_list):
-        for url in houses_list:
-            house = RentingHouseParser(url)
-            print_details(house)
+        return {"title": self.title}
+    
+    def get_location(self) -> dict:
+        """Returns the location of the house"""
+        location_list = self.soup.find_all("span", class_="in-location")
+        location = [location.text for location in location_list]
+        self.location = {"city": location[0], "area": location[1], "street": location[2]} \
+                        if len(location) == 3 else {"city": location[0], "area": pd.NA, "street": location[1]}
 
-            print("\n\n", "|"*100)
+        return self.location
 
+    def get_description(self) -> dict:
+        self.description = self.soup.find("div", class_="in-readAll").text
 
-    lista_case = ["https://www.immobiliare.it/annunci/101281527/",
-                  "https://www.immobiliare.it/annunci/101754409/",
-                  "https://www.immobiliare.it/annunci/101631381/",
-                  "https://www.immobiliare.it/annunci/100761695/",
-                  "https://www.immobiliare.it/annunci/101321083/"
-                  ]
+        return {"descrizione": self.description}
 
-    casa = RentingHouseParser(lista_case[0])
-    casa.start_html()
-    casa.get_features(True)
+    def get_house_traits(self) -> dict:
+        """Returns the traits of the house"""
+        dl_lists = self.soup.find_all("dl", class_="in-realEstateFeatures__list")  # return three objects "Caratteristiche", "Costi", "Efficienza Energetica"
+        
+        interested_descriptions = ["contratto", "tipologia", "superficie",
+                                "locali", "bagni", "piano", "disponibilità",
+                                "prezzo", "spese condominio", "cauzione",
+                                "anno costruzione", "stato", "riscaldamento",
+                                "climatizzatore", "efficienza energetica"]
+        
+        price_descriptions = ["prezzo", "spese condominio", "cauzione"]
+        
+        for dl_list in dl_lists:
+            terms = dl_list.find_all("dt")
+            descriptions = dl_list.find_all("dd")
+        
+            for term, description in zip(terms, descriptions):
+                if term.text.lower() in interested_descriptions:
+                    self.house_traits[term.text.lower()] = description.text
+                elif term.text.lower() in price_descriptions:
+                    self.price[term.text.lower()] = description.text
+
+        return self.house_traits
+    
+    def get_price(self) -> dict:
+        """Returns the price of the house"""
+        #TODO: REVISE the func to get all the prices (affitto, )
+        if not self.price:
+            self.get_house_traits()
+
+        return self.price    
+
+    def to_Series(self) -> pd.Series:
+        """Returns the house features as a pandas.Series"""
+        title = self.get_title()
+        location = self.get_location()
+        description = self.get_description()
+        characteristics = self.get_house_traits()
+        price = self.get_price()
+
+        features = [
+            title,
+            price,
+            location,
+            description,
+            characteristics
+            ]
+        series = pd.Series()
+        for feature in features:
+            for key, val in feature.items():
+                series[key] = val
+        
+        return series
